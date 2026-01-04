@@ -1,10 +1,13 @@
 [project]
-name = "sqlalchemy"
+name = "practice-sql-alchemy"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "asyncpg",
+    "sqlalchemy>=2.0",
+]
 
 [project.optional-dependencies]
 dev = [
