@@ -2,7 +2,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.database import Base
-from app.team.model import Team
+import app.models
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -29,7 +29,7 @@ async def test_db_session():
 
 @pytest_asyncio.fixture
 async def seed_teams(test_db_session):
-    team1 = Team(
+    team1 = app.models.Team(
         id=1,
         squad_name="Team 1",
         squad_lead="Lead 1",
@@ -38,7 +38,7 @@ async def seed_teams(test_db_session):
         product_line="Product 1",
         dh_slack_group="team-1",
     )
-    team2 = Team(
+    team2 = app.models.Team(
         id=2,
         squad_name="Team 2",
         squad_lead="Lead 2",
