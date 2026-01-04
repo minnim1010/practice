@@ -2,41 +2,48 @@ import asyncio
 import time
 from pprint import pprint
 
-from app.database import create_tables
-from app.team.dto import TeamCreate, TeamUpdate
-from app.team.service import add_team, get_teams, update_team, delete_team, get_team
+from app.application.dto import ApplicationCreate, ApplicationUpdate
+from app.application.service import (
+    add_application,
+    get_applications,
+    update_application,
+    get_application,
+    delete_application,
+)
+from app.team.dto import TeamCreate
+from app.team.service import add_team
 
 
 async def main():
-    await create_tables()
-    team_values = TeamCreate(
-        squad_name=f"squad_{time.time()}",
-        squad_lead="example",
-        tribe="example",
-        tribe_lead="example",
-        product_line="example",
-        dh_slack_group="example",
+    # await create_tables(drop=True)
+    team_create_data = TeamCreate(
+        squad_name="Test Squad",
+        squad_lead="Test Lead",
+        tribe="Test Tribe",
+        tribe_lead="Test Tribe Lead",
+        product_line="Test Product",
+        dh_slack_group="test-slack",
     )
-    await add_team(team_values)
-
-    teams = await get_teams()
-    pprint(teams)
-
-    update_team_values = TeamUpdate(
-        squad_name=f"update_squad_{time.time()}",
-        squad_lead="update",
-        tribe="update",
-        tribe_lead="update",
-        product_line="update",
-        dh_slack_group="update",
-    )
-    await update_team(1, update_team_values)
-    team = await get_team(1)
+    team = await add_team(team_create_data)
     pprint(team)
 
-    await delete_team(2)
-    teams = await get_teams()
-    pprint(teams)
+    application_values = ApplicationCreate(name=f"application_{time.time()}", team_id=team.id)
+    await add_application(application_values)
+
+    applications = await get_applications()
+    pprint(applications)
+
+    application = applications[0]
+    update_application_values = ApplicationUpdate(
+        name=f"update_application_{time.time()}", description="update", team_id=application.team_id
+    )
+    await update_application(application.id, update_application_values)
+    updated_application = await get_application(application.id)
+    pprint(updated_application)
+
+    await delete_application(updated_application.id)
+    applications = await get_applications()
+    pprint(applications)
 
 
 if __name__ == "__main__":

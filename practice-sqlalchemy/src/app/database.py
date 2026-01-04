@@ -13,7 +13,8 @@ AsyncSessionLocal = async_sessionmaker(
 Base = declarative_base()
 
 
-async def create_tables():
+async def create_tables(drop: bool = False):
     async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all)
+        if drop:
+            await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)

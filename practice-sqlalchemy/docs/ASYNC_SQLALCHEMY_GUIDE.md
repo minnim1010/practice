@@ -220,3 +220,135 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+## 7. Handling One-to-Many Relationships
+
+When working with relationships in async SQLAlchemy, it's crucial to manage how related objects are loaded to avoid performance issues.
+
+### 7.1 Defining Models with Relationships
+
+Let's define a one-to-many relationship between `User` and a new `Post` model. A user can have multiple posts.
+
+```python
+# src/app/models.py
+
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import relationship
+from .database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    email = Column(String, unique=True, index=True)
+
+    # By default, this relationship uses lazy='select', which is problematic in async.
+    posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
+
+class Post(Base):
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    content = Column(String)
+    author_id = Column(Integer, ForeignKey("users.id"))
+
+    # By default, this relationship uses lazy='select'.
+    author = relationship("User", back_populates="posts")
+```
+
+### 7.2 Lazy Loading vs. Eager Loading
+
+In async code, **lazy loading is a major pitfall**. When you access a related attribute (like `user.posts`) that is not yet loaded, SQLAlchemy, by default, issues a synchronous SQL query to fetch the data. This blocks the asyncio event loop and negates the benefits of async programming.
+
+To prevent this, you should use **eager loading** strategies.
+
+- **`selectinload`**: This is the recommended strategy for loading one-to-many or many-to-many relationships. It issues a separate `SELECT` statement to fetch the related objects for all parent objects at once.
+- **`lazy='raise_on_sql'`**: It's a good practice to set `lazy='raise_on_sql'` on your relationships. This will raise a `DetachedInstanceError` if your code accidentally triggers a lazy load, helping you identify and fix these issues early.
+
+Here is how you can configure the relationship to prevent lazy loading:
+
+```python
+# In User model
+posts = relationship("Post", back_populates="author", cascade="all, delete-orphan", lazy="raise_on_sql")
+
+# In Post model
+author = relationship("User", back_populates="posts", lazy="raise_on_sql")
+```
+
+### 7.3 Creating and Querying with Relationships
+
+When creating objects, you can build the relationship in memory before committing.
+
+```python
+# main.py
+
+async def add_user_with_posts():
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            user = User(name="Charlie", email="charlie@example.com")
+            user.posts.append(Post(title="First Post", content="Hello World!"))
+            user.posts.append(Post(title="Second Post", content="Async is fun!"))
+            session.add(user)
+            print("Added user Charlie with two posts")
+```
+
+When querying, use `options(selectinload(...))` to eagerly load the related posts. This is the **correct way**.
+
+```python
+# main.py
+from sqlalchemy.orm import selectinload
+
+async def get_users_with_posts_correctly():
+    async with AsyncSessionLocal() as session:
+        # Eagerly load the 'posts' relationship
+        result = await session.execute(
+            select(User).options(selectinload(User.posts))
+        )
+        users = result.scalars().unique().all()
+
+        for user in users:
+            print(f"User: {user.name}")
+            # Accessing user.posts will not trigger a new query
+            for post in user.posts:
+                print(f"  - Post: {post.title}")
+        return users
+```
+
+### 7.4 Bad Code Example: Accidental Lazy Loading
+
+Here is an example of what **not** to do. This code fetches users without eagerly loading their posts. When `user.posts` is accessed inside the loop, SQLAlchemy issues a new synchronous query for each user, causing the "N+1 problem" and blocking the event loop.
+
+If `lazy='raise_on_sql'` is set on the relationship, this code will raise an error. If not, it will run with very poor performance.
+
+```python
+# main.py (BAD EXAMPLE - DO NOT USE)
+
+async def get_users_with_posts_incorrectly():
+    async with AsyncSessionLocal() as session:
+        # This query does NOT eagerly load the posts.
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+
+        print("\n--- Incorrectly fetching posts (triggers lazy loading) ---")
+        for user in users:
+            print(f"User: {user.name}")
+            try:
+                # This access triggers a synchronous, blocking I/O call for each user.
+                # This is the N+1 problem.
+                for post in user.posts:
+                    print(f"  - Post: {post.title}")
+            except Exception as e:
+                print(f"  - Error accessing posts: {e}")
+                print("  - This error is expected if lazy='raise_on_sql' is set.")
+
+```
+
+### 7.5 Key Takeaways for Relationships in Async
+
+1.  **Avoid Lazy Loading**: It blocks the event loop. Always use an eager loading strategy.
+2.  **Use `selectinload`**: It is the most common and effective strategy for loading related collections (one-to-many, many-to-many).
+3.  **Set `lazy='raise_on_sql'`**: This helps you catch unintended lazy loading during development.
+4.  **Build Relationships in Memory**: When creating new objects, you can associate them in memory before adding them to the session.
+5.  **Use `unique()` on Results**: When using eager loading, you might get duplicate parent objects in the result set. Use `result.scalars().unique().all()` to get unique parent instances.

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -13,3 +14,5 @@ class Team(Base):
     tribe_lead = Column(String(100))
     product_line = Column(String(100))
     dh_slack_group = Column(String(100))
+
+    applications = relationship("Application", back_populates="team", lazy="raise_on_sql")

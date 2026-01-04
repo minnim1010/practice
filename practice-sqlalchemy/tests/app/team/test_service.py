@@ -1,8 +1,5 @@
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-
-from app.database import Base
 from app.team.service import (
     add_team,
     get_teams,
@@ -11,28 +8,6 @@ from app.team.service import (
     delete_team,
 )
 from app.team.dto import TeamCreate, TeamUpdate
-
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest_asyncio.fixture(scope="function")
-async def test_db_session():
-    """
-    Fixture to set up an in-memory database for each test function.
-    """
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    TestAsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async with TestAsyncSessionLocal() as session:
-        yield session
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-    await engine.dispose()
 
 
 @pytest_asyncio.fixture(autouse=True)
