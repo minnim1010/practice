@@ -123,6 +123,7 @@ volumes:
 To start the services, run:
 ```bash
 docker-compose up --build
+docker-compose up --build -d # run in the background
 ```
 
 To stop the services, run:
