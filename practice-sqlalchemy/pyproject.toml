@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg",
     "sqlalchemy>=2.0",
     "greenlet>=3.0",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -15,6 +16,7 @@ dev = [
     "ruff",
     "black",
     "pytest",
+    "pytest_asyncio",
     "pre-commit",
 ]
 
@@ -26,3 +28,4 @@ line-length = 120
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
