@@ -221,7 +221,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## 7. Handling One-to-Many Relationships
+## 7. Handling Relationships
 
 When working with relationships in async SQLAlchemy, it's crucial to manage how related objects are loaded to avoid performance issues.
 
@@ -258,16 +258,11 @@ class Post(Base):
     author = relationship("User", back_populates="posts")
 ```
 
-### 7.2 Lazy Loading vs. Eager Loading
+### 7.2 Understanding Loading Strategies
 
-In async code, **lazy loading is a major pitfall**. When you access a related attribute (like `user.posts`) that is not yet loaded, SQLAlchemy, by default, issues a synchronous SQL query to fetch the data. This blocks the asyncio event loop and negates the benefits of async programming.
+In async code, **lazy loading is a major pitfall**. It issues a synchronous SQL query when a related attribute is first accessed, blocking the event loop. To prevent this, you must use **eager loading** strategies.
 
-To prevent this, you should use **eager loading** strategies.
-
-- **`selectinload`**: This is the recommended strategy for loading one-to-many or many-to-many relationships. It issues a separate `SELECT` statement to fetch the related objects for all parent objects at once.
-- **`lazy='raise_on_sql'`**: It's a good practice to set `lazy='raise_on_sql'` on your relationships. This will raise a `DetachedInstanceError` if your code accidentally triggers a lazy load, helping you identify and fix these issues early.
-
-Here is how you can configure the relationship to prevent lazy loading:
+It's a strong recommendation to set `lazy='raise_on_sql'` on all relationships to prevent accidental lazy loads. This will raise a `DetachedInstanceError` if your code attempts a lazy load, making the problem immediately obvious.
 
 ```python
 # In User model
@@ -275,6 +270,58 @@ posts = relationship("Post", back_populates="author", cascade="all, delete-orpha
 
 # In Post model
 author = relationship("User", back_populates="posts", lazy="raise_on_sql")
+```
+
+Here are the primary eager loading strategies:
+
+#### 7.2.1 `selectinload`
+
+This is the most common and recommended strategy for one-to-many or many-to-many relationships.
+
+- **How it works**: It issues a second `SELECT` statement that fetches all related objects for all the parent objects loaded in the initial query. It uses an `IN` clause with the primary keys of the parent objects.
+- **Pros**: Avoids complex `JOIN`s and Cartesian products, which can be inefficient for "to-many" relationships. It results in predictable queries.
+- **Cons**: Requires two separate queries.
+
+```python
+from sqlalchemy.orm import selectinload
+
+# Correctly loads users and their posts in two separate queries
+stmt = select(User).options(selectinload(User.posts))
+result = await session.execute(stmt)
+users = result.scalars().unique().all()
+```
+
+#### 7.2.2 `joinedload`
+
+This strategy is typically used for many-to-one or one-to-one relationships.
+
+- **How it works**: It uses a `LEFT OUTER JOIN` to fetch the parent and related objects in a single query.
+- **Pros**: Fetches all data in one query, which can be faster for "to-one" relationships.
+- **Cons**: For "to-many" relationships, it can create a Cartesian product, leading to a large amount of redundant data being transferred and processed by Python, which is inefficient. **Do not use `joinedload` for one-to-many relationships if the parent collection is large.**
+
+```python
+from sqlalchemy.orm import joinedload
+
+# Correctly loads a post and its author in a single query
+stmt = select(Post).options(joinedload(Post.author))
+result = await session.execute(stmt)
+posts = result.scalars().all()
+```
+
+#### 7.2.3 `subqueryload`
+
+This is an alternative to `joinedload` for "to-many" relationships, but it's often more complex than `selectinload`.
+
+- **How it works**: It issues a second query that `JOIN`s the parent and child tables, but it wraps the parent query in a subquery. This avoids the Cartesian product issue of `joinedload` in the main query.
+- **Pros**: Can be more efficient than `joinedload` for "to-many" relationships in some specific database-dependent scenarios.
+- **Cons**: The resulting query is more complex. `selectinload` is usually a better and simpler choice.
+
+```python
+from sqlalchemy.orm import subqueryload
+
+stmt = select(User).options(subqueryload(User.posts))
+result = await session.execute(stmt)
+users = result.scalars().unique().all()
 ```
 
 ### 7.3 Creating and Querying with Relationships
@@ -294,7 +341,7 @@ async def add_user_with_posts():
             print("Added user Charlie with two posts")
 ```
 
-When querying, use `options(selectinload(...))` to eagerly load the related posts. This is the **correct way**.
+When querying, always use an eager loading option like `selectinload`.
 
 ```python
 # main.py
@@ -302,7 +349,7 @@ from sqlalchemy.orm import selectinload
 
 async def get_users_with_posts_correctly():
     async with AsyncSessionLocal() as session:
-        # Eagerly load the 'posts' relationship
+        # Eagerly load the 'posts' relationship using selectinload
         result = await session.execute(
             select(User).options(selectinload(User.posts))
         )
@@ -345,10 +392,21 @@ async def get_users_with_posts_incorrectly():
 
 ```
 
-### 7.5 Key Takeaways for Relationships in Async
+### 7.5 Key Takeaways for Loading Strategies in Async
 
-1.  **Avoid Lazy Loading**: It blocks the event loop. Always use an eager loading strategy.
-2.  **Use `selectinload`**: It is the most common and effective strategy for loading related collections (one-to-many, many-to-many).
-3.  **Set `lazy='raise_on_sql'`**: This helps you catch unintended lazy loading during development.
-4.  **Build Relationships in Memory**: When creating new objects, you can associate them in memory before adding them to the session.
-5.  **Use `unique()` on Results**: When using eager loading, you might get duplicate parent objects in the result set. Use `result.scalars().unique().all()` to get unique parent instances.
+1.  **Always Use Eager Loading**: Lazy loading is not compatible with async code.
+2.  **Set `lazy='raise_on_sql'`**: This is your safety net. It turns silent performance killers into loud errors during development.
+3.  **Choose the Right Strategy**:
+    - **`selectinload`**: Best for one-to-many and many-to-many relationships.
+    - **`joinedload`**: Best for many-to-one and one-to-one relationships. Avoid for "to-many" collections.
+4.  **Filter on Relationships**: When filtering based on attributes of a related model, you must use a `join()` or `outerjoin()` in your query, even if you are also using an eager loading option. The loading option controls what is loaded, while the `join` controls what is available for the `WHERE` clause.
+    ```python
+    # Find users who have posts with a specific title, and load all their posts
+    stmt = (
+        select(User)
+        .join(User.posts)
+        .filter(Post.title == "Async is fun!")
+        .options(selectinload(User.posts))
+    )
+    ```
+5.  **Use `.unique()`**: When using `selectinload` or `subqueryload`, you might get duplicate parent objects in the result set before they are fully processed. Always use `result.scalars().unique().all()` to get a list of unique parent instances.
