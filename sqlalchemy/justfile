@@ -1,0 +1,23 @@
+# justfile
+
+# Default task
+default:
+    @just --list
+
+# Setup the local development environment
+setup:
+    uv venv
+    uv pip install -e '.[dev]'
+
+# Run the linter
+lint:
+    uv run ruff check .
+
+# Fix linting issues automatically
+fix:
+    uv run ruff check . --fix
+    uv run black .
+
+# Run tests
+test:
+    uv run pytest
